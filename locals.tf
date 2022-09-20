@@ -1,7 +1,7 @@
 #---root/locals.tf---
 
 locals {
-  vpc_cidrs = "10.124.0.0/16"
+  vpc_cidrs = "10.0.0.0/16"
 }
 
 locals {
@@ -40,7 +40,7 @@ locals {
           from_port   = 3306
           to_port     = 3306
           protocol    = "tcp"
-          cidr_blocks = [var.access_ip]
+          cidr_blocks = [local.vpc_cidrs]
         }
       }
     }
@@ -53,7 +53,7 @@ locals {
           from_port   = 22
           to_port     = 22
           protocol    = "tcp"
-          cidr_blocks = [var.access_ip]
+          cidr_blocks = [var.my_ip]
         }
       }
     }
@@ -66,19 +66,19 @@ locals {
           from_port   = 22
           to_port     = 22
           protocol    = "tcp"
-          cidr_blocks = [var.access_ip]
+          cidr_blocks = [local.vpc_cidrs]
         }
         http = {
           from_port   = 80
           to_port     = 80
           protocol    = "tcp"
-          cidr_blocks = [var.access_ip]
+          cidr_blocks = [local.vpc_cidrs]
         }
         https = {
           from_port   = 443
           to_port     = 443
           protocol    = "tcp"
-          cidr_blocks = [var.access_ip]
+          cidr_blocks = [local.vpc_cidrs]
         }
       }
     }

@@ -1,25 +1,13 @@
 #--networking/main.tf----
 
-resource "random_integer" "random" {
-  min = 1
-  max = 100
-}
 
-data "aws_availability_zones" "available" {}
-
-resource "random_shuffle" "az_lists" {
-  input        = data.aws_availability_zones.available.names
-  result_count = var.max_subnets
-}
-
-resource "aws_vpc" "mtc_vpc" {
+resource "aws_vpc" "task_vpc" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-
   tags = {
-    Name = "mtc_vpc-${random_integer.random.id}"
+    Name = "mtc-vpc-task"
   }
 
   lifecycle {
@@ -27,94 +15,93 @@ resource "aws_vpc" "mtc_vpc" {
   }
 }
 
-resource "aws_subnet" "mtc_public_subnet" {
-  count                   = var.public_sn_count
-  vpc_id                  = aws_vpc.mtc_vpc.id
+resource "aws_subnet" "task_public_subnet" {
+  count                   = length(var.public_cidrs)
+  vpc_id                  = aws_vpc.task_vpc.id
   cidr_block              = var.public_cidrs[count.index]
   map_public_ip_on_launch = true
-  availability_zone       = random_shuffle.az_lists.result[count.index]
+  availability_zone       = var.availability_zones[count.index]
   tags = {
-    Name = "mtc_public_${count.index + 1}"
+    Name = "task-public-${count.index + 1}"
   }
 }
 
-resource "aws_subnet" "mtc_private_subnet" {
-  count             = var.private_sn_count
-  vpc_id            = aws_vpc.mtc_vpc.id
-  cidr_block        = var.private_cidrs[count.index]
-  availability_zone = random_shuffle.az_lists.result[count.index]
+resource "aws_subnet" "task_app_private_subnet" {
+  count             = length(var.app_private_cidrs)
+  vpc_id            = aws_vpc.task_vpc.id
+  cidr_block        = var.app_private_cidrs[count.index]
+  availability_zone = var.availability_zones[count.index]
   tags = {
-    Name = "mtc_private_${count.index}"
+    Name = "task-app-private-${count.index + 1}"
+  }
+}
+
+resource "aws_subnet" "task_data_private_subnet" {
+  count             = length(var.data_private_cidrs)
+  vpc_id            = aws_vpc.task_vpc.id
+  cidr_block        = var.data_private_cidrs[count.index]
+  availability_zone = var.availability_zones[count.index]
+  tags = {
+    Name = "task-data-private-${count.index + 1}"
   }
 }
 
 #---internet gateway
 resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.mtc_vpc.id
+  vpc_id = aws_vpc.task_vpc.id
   tags = {
-    Name = "mtc-igw"
+    Name = "task-igw"
   }
 }
 
 #---public route table---
-resource "aws_route_table" "mtc_public_rt" {
-  vpc_id = aws_vpc.mtc_vpc.id
+resource "aws_route_table" "task_public_rt" {
+  vpc_id = aws_vpc.task_vpc.id
 
   tags = {
-    Name = "mtc_public_rt"
+    Name = "task-public-rt"
   }
 }
 
-resource "aws_route" "mtc_public_route" {
-  route_table_id         = aws_route_table.mtc_public_rt.id
+resource "aws_route" "task_public_route" {
+  route_table_id         = aws_route_table.task_public_rt.id
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.igw.id
 }
 
-resource "aws_route_table_association" "mtc_public_assoc" {
-  count          = var.public_sn_count
-  subnet_id      = aws_subnet.mtc_public_subnet.*.id[count.index]
-  route_table_id = aws_route_table.mtc_public_rt.id
+resource "aws_route_table_association" "task_public_assoc" {
+  count          = length(var.public_cidrs)
+  subnet_id      = aws_subnet.task_public_subnet.*.id[count.index]
+  route_table_id = aws_route_table.task_public_rt.id
 
 }
 #----natgateway-route table----
-resource "aws_route_table" "mtc_nat_rt" {
-  vpc_id = aws_vpc.mtc_vpc.id
+resource "aws_route_table" "task_nat_rt" {
+  vpc_id = aws_vpc.task_vpc.id
   tags = {
-    Name = "mtc_nat_rt"
+    Name = "task-nat-rt"
   }
 }
 
-resource "aws_route" "mtc_nat_route" {
-  route_table_id         = aws_route_table.mtc_nat_rt.id
+resource "aws_route" "task_nat_route" {
+  route_table_id         = aws_route_table.task_nat_rt.id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.mtc_natgw.id
+  nat_gateway_id         = aws_nat_gateway.task_natgw.id
 }
 
 resource "aws_route_table_association" "mtc_nat_assoc" {
-  count          = var.private_sn_count
-  subnet_id      = aws_subnet.mtc_private_subnet.*.id[count.index]
-  route_table_id = aws_route_table.mtc_nat_rt.id
-}
-
-
-#---private route table----
-resource "aws_default_route_table" "mtc_private_rt" {
-  default_route_table_id = aws_vpc.mtc_vpc.default_route_table_id
-
-  tags = {
-    Name = "mtc_private_rt"
-
-  }
+  count          = length(var.app_private_cidrs)
+  subnet_id      = aws_subnet.task_app_private_subnet.*.id[count.index]
+  route_table_id = aws_route_table.task_nat_rt.id
 }
 
 #--security group---
 
-resource "aws_security_group" "mtc_sg" {
+resource "aws_security_group" "task_sg" {
   for_each    = var.security_groups
   name        = each.value.name
   description = each.value.description
-  vpc_id      = aws_vpc.mtc_vpc.id
+  vpc_id      = aws_vpc.task_vpc.id
   dynamic "ingress" {
     for_each = each.value.ingress
     content {
@@ -136,11 +123,11 @@ resource "aws_security_group" "mtc_sg" {
 
 
 #---nat gateway----
-resource "aws_nat_gateway" "mtc_natgw" {
-  subnet_id     = aws_subnet.mtc_public_subnet[1].id
+resource "aws_nat_gateway" "task_natgw" {
+  subnet_id     = aws_subnet.task_public_subnet[1].id
   allocation_id = aws_eip.nat_eip.id
   tags = {
-    Name = "mtc-natgw"
+    Name = "task-natgw"
   }
   depends_on = [aws_internet_gateway.igw]
 }
@@ -148,18 +135,16 @@ resource "aws_nat_gateway" "mtc_natgw" {
 resource "aws_eip" "nat_eip" {
   vpc = true
   tags = {
-    Name = "nat_eip"
+    Name = "nat-eip"
   }
-
 }
 
 #---subnet group rds ---
-resource "aws_db_subnet_group" "mtc_rds_subnet_group" {
-  // count      = var.db_subnet_group == true ? 1 : 0
-  name = "mtc_subnet_group"
-  subnet_ids = [aws_subnet.mtc_private_subnet.*.id[0],
-  aws_subnet.mtc_private_subnet.*.id[1]]
+resource "aws_db_subnet_group" "task_rds_subnet_group" {
+  name = "mtc-subnet-group"
+  subnet_ids = [aws_subnet.task_data_private_subnet.*.id[0],
+  aws_subnet.task_data_private_subnet.*.id[1]]
   tags = {
-    Name = "mtc_rds_sng"
+    Name = "mtc-rds-sng"
   }
 }

@@ -1,4 +1,2 @@
-access_ip  = "0.0.0.0/0"
-dbname     = "webappdb"
-dbusername = "dbadmin"
-dbpassword = "dbpassword11"
+access_ip = "0.0.0.0/0"
+my_ip     = "0.0.0.0/0"
